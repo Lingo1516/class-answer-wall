@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>課堂問答牆｜老師出題・學生作答・投影播放</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+         background: #f4f6f8; color: #1a1a1a; font-size: 19px; line-height: 1.6; }
+  header { background: #1F3864; color: #fff; padding: 18px 20px; }
+  header h1 { font-size: 28px; letter-spacing: 1px; }
+  header p { font-size: 16px; opacity: .85; margin-top: 2px; }
+  main { max-width: 960px; margin: 0 auto; padding: 20px 16px 60px; }
+  .card { background: #fff; border: 1px solid #d5dbe3; border-radius: 10px;
+          padding: 22px; margin-bottom: 18px; }
+  .card h2 { font-size: 23px; color: #1F3864; margin-bottom: 12px;
+             border-bottom: 2px solid #1F3864; padding-bottom: 6px; }
+  label { display: block; font-weight: bold; margin: 14px 0 6px; }
+  input[type=text], textarea { width: 100%; font-size: 20px; padding: 12px;
+    border: 1.5px solid #9db2cc; border-radius: 8px; font-family: inherit; }
+  textarea { min-height: 130px; resize: vertical; }
+  button { font-family: inherit; font-size: 20px; font-weight: bold; cursor: pointer;
+    border-radius: 8px; padding: 13px 26px; border: 1.5px solid #1F3864;
+    background: #1F3864; color: #fff; margin: 8px 6px 0 0; }
+  button.sub { background: #fff; color: #1F3864; }
+  button.red { background: #C00000; border-color: #C00000; }
+  button:disabled { opacity: .45; cursor: default; }
+  .modebar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .modebar button { flex: 1; min-width: 150px; background: #fff; color: #1F3864; }
+  .modebar button.on { background: #1F3864; color: #fff; }
+  .status { font-size: 16px; padding: 9px 14px; border-radius: 8px; margin: 10px 0;
+            background: #eef3fa; border: 1px solid #c4d2e6; }
+  .status.ok { background: #e8f5e9; border-color: #a5d6a7; }
+  .status.bad { background: #fdecea; border-color: #ef9a9a; }
+  .bigcode { font-size: 54px; font-weight: bold; letter-spacing: 10px; color: #C00000;
+             text-align: center; margin: 8px 0; }
+  .qtext { font-size: 26px; font-weight: bold; background: #fffbe6; border: 1.5px solid #e6c87a;
+           border-radius: 10px; padding: 18px; margin: 10px 0; white-space: pre-wrap; }
+  #qr { text-align: center; margin: 12px auto; }
+  #qr img, #qr canvas { margin: 0 auto; }
+  .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .ans { background: #fff; border: 1px solid #d5dbe3; border-left: 6px solid #1F3864;
+         border-radius: 8px; padding: 14px 16px; position: relative; }
+  .ans .who { font-weight: bold; color: #1F3864; font-size: 17px; margin-bottom: 4px; }
+  .ans .txt { font-size: 20px; white-space: pre-wrap; word-break: break-word; }
+  .ans .del { position: absolute; top: 6px; right: 10px; background: none; border: none;
+              color: #C00000; font-size: 18px; padding: 2px 6px; margin: 0; }
+  .count { font-size: 22px; font-weight: bold; color: #C00000; }
+  .hint { font-size: 16px; color: #555; margin-top: 8px; }
+  /* 投影播放模式 */
+  #stage { display: none; position: fixed; inset: 0; background: #10243e; color: #fff;
+           z-index: 50; flex-direction: column; }
+  #stage .sq { padding: 34px 6vw 0; font-size: 24px; color: #ffd966; font-weight: bold;
+               white-space: pre-wrap; }
+  #stage .sa { flex: 1; display: flex; align-items: center; justify-content: center;
+               padding: 20px 6vw; text-align: center; font-size: 52px; line-height: 1.5;
+               white-space: pre-wrap; word-break: break-word; overflow: auto; }
+  #stage .sw { text-align: center; font-size: 22px; color: #bcd; padding-bottom: 8px; }
+  #stage .sbar { display: flex; justify-content: space-between; align-items: center;
+                 padding: 14px 22px; font-size: 19px; }
+  #stage button { background: #fff; color: #10243e; border-color: #fff; }
+  @media (max-width: 640px) {
+    #stage .sa { font-size: 36px; }
+    .bigcode { font-size: 42px; letter-spacing: 6px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>課堂問答牆</h1>
+  <p>老師出一個問題，學生用手機送答案，老師即時收集、投影播放給全班看</p>
+</header>
+<main>
+  <div class="modebar">
+    <button id="tabT" class="on" onclick="showMode('T')">我是老師</button>
+    <button id="tabS" onclick="showMode('S')">我是學生</button>
+  </div>
+
+  <!-- 老師 -->
+  <section id="modeT">
+    <div class="card">
+      <h2>一、開一間教室</h2>
+      <label>問題（一次一個）</label>
+      <textarea id="tq" placeholder="例：你認為領導者最重要的能力是什麼？為什麼？"></textarea>
+      <button onclick="createRoom()">建立教室並公布問題</button>
+      <button class="sub" id="resumeBtn" style="display:none" onclick="resumeRoom()">繼續上次的教室</button>
+      <div id="tStatus" class="status">尚未建立教室。</div>
+      <div id="roomBox" style="display:none">
+        <p style="text-align:center;font-weight:bold">教室代碼（學生輸入這個號碼就能進來）</p>
+        <div class="bigcode" id="roomCode"></div>
+        <div id="qr"></div>
+        <p class="hint" style="text-align:center">學生也可以掃 QR Code 直接進教室，不用打代碼。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>二、收到的答案（<span class="count" id="ansCount">0</span> 則）</h2>
+      <div class="qtext" id="tqShow" style="display:none"></div>
+      <button onclick="openStage()">▶ 投影播放（像 PPT 一頁一則）</button>
+      <button class="sub" onclick="copyAll()">複製全部答案</button>
+      <button class="red" onclick="clearAnswers()">清除全部答案</button>
+      <p class="hint">按「投影播放」後，用鍵盤 ← → 或點按鈕翻頁，第一頁是問題，後面一頁一則答案。</p>
+      <div class="wall" id="wall" style="margin-top:14px"></div>
+      <p class="hint" id="wallEmpty">還沒有答案。學生送出後，這裡會即時出現。</p>
+    </div>
+  </section>
+
+  <!-- 學生 -->
+  <section id="modeS" style="display:none">
+    <div class="card">
+      <h2>一、進入教室</h2>
+      <label>教室代碼（老師公布的 6 位數字）</label>
+      <input type="text" id="sCode" inputmode="numeric" maxlength="6" placeholder="例：483920">
+      <button onclick="joinRoom()">進入教室</button>
+      <div id="sStatus" class="status">請先輸入教室代碼。</div>
+    </div>
+    <div class="card" id="sBox" style="display:none">
+      <h2>二、回答問題</h2>
+      <div class="qtext" id="sqShow"></div>
+      <label>你的姓名或組別</label>
+      <input type="text" id="sName" placeholder="例：王小明／第 3 組">
+      <label>你的答案</label>
+      <textarea id="sAns" placeholder="把你的想法寫在這裡"></textarea>
+      <button onclick="sendAnswer()">送出答案</button>
+      <div id="sendStatus" class="status" style="display:none"></div>
+    </div>
+  </section>
+
+  <p class="hint">說明：答案透過網路即時傳到老師的畫面，老師這台裝置會把答案存起來，重新整理不會不見。教室代碼就是鑰匙，請勿把代碼公開貼到網路上；本工具適合課堂討論，不要填寫私人或敏感內容。</p>
+</main>
+
+<!-- 投影播放 -->
+<div id="stage">
+  <div class="sq" id="stageQ"></div>
+  <div class="sa" id="stageA"></div>
+  <div class="sw" id="stageW"></div>
+  <div class="sbar">
+    <button onclick="stageMove(-1)">← 上一頁</button>
+    <span id="stageN"></span>
+    <button onclick="closeStage()">結束播放（Esc）</button>
+    <button onclick="stageMove(1)">下一頁 →</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+var BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081'];
+var client = null, brokerIdx = 0;
+var role = null, myCode = null, question = '';
+var answers = []; // {who, txt, t}
+var stageIdx = 0;
+
+function topic(code, kind) { return 'lingo1516/classqa/' + code + '/' + kind; }
+function $(id) { return document.getElementById(id); }
+
+function connect(code, asTeacher) {
+  if (client) { try { client.end(true); } catch (e) {} client = null; }
+  brokerIdx = 0;
+  tryBroker(code, asTeacher);
+}
+function tryBroker(code, asTeacher) {
+  var url = BROKERS[brokerIdx];
+  var c = mqtt.connect(url, { clientId: 'cqa_' + Math.random().toString(36).slice(2, 10),
+                             reconnectPeriod: 3000, connectTimeout: 8000 });
+  client = c;
+  var opened = false;
+  c.on('connect', function () {
+    opened = true;
+    if (asTeacher) {
+      c.subscribe(topic(code, 'answers'));
+      setStatus('tStatus', '連線成功，教室開放中。學生送出答案會即時出現在下方。', 'ok');
+    } else {
+      c.subscribe(topic(code, 'question'));
+      setStatus('sStatus', '連線成功，正在等老師公布問題…', 'ok');
+    }
+  });
+  c.on('message', function (tp, payload) {
+    var msg; try { msg = JSON.parse(payload.toString()); } catch (e) { return; }
+    if (asTeacher && tp === topic(code, 'answers') && msg.who !== undefined) {
+      answers.push({ who: msg.who, txt: msg.txt, t: msg.t || Date.now() });
+      saveLocal(); renderWall();
+    }
+    if (!asTeacher && tp === topic(code, 'question') && msg.q !== undefined) {
+      question = msg.q;
+      $('sqShow').textContent = question;
+      $('sBox').style.display = 'block';
+      setStatus('sStatus', '已進入教室，問題在下方，寫好答案按「送出答案」。', 'ok');
+    }
+  });
+  c.on('error', function () {
+    if (!opened && brokerIdx < BROKERS.length - 1) {
+      brokerIdx++; try { c.end(true); } catch (e) {} tryBroker(code, asTeacher);
+    }
+  });
+}
+
+function setStatus(id, text, cls) {
+  var el = $(id); el.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function showMode(m) {
+  $('modeT').style.display = m === 'T' ? 'block' : 'none';
+  $('modeS').style.display = m === 'S' ? 'block' : 'none';
+  $('tabT').className = m === 'T' ? 'on' : '';
+  $('tabS').className = m === 'S' ? 'on' : '';
+}
+
+/* ---------- 老師 ---------- */
+function createRoom() {
+  var q = $('tq').value.trim();
+  if (!q) { alert('請先輸入問題'); return; }
+  question = q;
+  myCode = String(Math.floor(100000 + Math.random() * 900000));
+  answers = [];
+  role = 'T';
+  $('roomCode').textContent = myCode;
+  $('roomBox').style.display = 'block';
+  $('tqShow').style.display = 'block';
+  $('tqShow').textContent = '問題：' + question;
+  renderWall();
+  connect(myCode, true);
+  // 公布問題（retain：晚進來的學生也看得到）
+  var iv = setInterval(function () {
+    if (client && client.connected) {
+      client.publish(topic(myCode, 'question'), JSON.stringify({ q: question }), { retain: true });
+      clearInterval(iv); saveLocal();
+    }
+  }, 400);
+  var link = location.origin + location.pathname + '?code=' + myCode;
+  $('qr').innerHTML = '';
+  try { new QRCode($('qr'), { text: link, width: 180, height: 180 }); } catch (e) {}
+  setStatus('tStatus', '教室建立中，正在連線…', '');
+}
+
+function resumeRoom() {
+  var d; try { d = JSON.parse(localStorage.getItem('cqa_room') || 'null'); } catch (e) {}
+  if (!d) return;
+  myCode = d.code; question = d.q; answers = d.answers || [];
+  role = 'T';
+  $('tq').value = question;
+  $('roomCode').textContent = myCode;
+  $('roomBox').style.display = 'block';
+  $('tqShow').style.display = 'block';
+  $('tqShow').textContent = '問題：' + question;
+  renderWall();
+  connect(myCode, true);
+  var iv = setInterval(function () {
+    if (client && client.connected) {
+      client.publish(topic(myCode, 'question'), JSON.stringify({ q: question }), { retain: true });
+      clearInterval(iv);
+    }
+  }, 400);
+  var link = location.origin + location.pathname + '?code=' + myCode;
+  $('qr').innerHTML = '';
+  try { new QRCode($('qr'), { text: link, width: 180, height: 180 }); } catch (e) {}
+}
+
+function saveLocal() {
+  if (role !== 'T' || !myCode) return;
+  try { localStorage.setItem('cqa_room', JSON.stringify({ code: myCode, q: question, answers: answers })); } catch (e) {}
+}
+
+function renderWall() {
+  $('ansCount').textContent = answers.length;
+  $('wallEmpty').style.display = answers.length ? 'none' : 'block';
+  var w = $('wall'); w.innerHTML = '';
+  answers.forEach(function (a, i) {
+    var d = document.createElement('div'); d.className = 'ans';
+    var who = document.createElement('div'); who.className = 'who'; who.textContent = a.who;
+    var txt = document.createElement('div'); txt.className = 'txt'; txt.textContent = a.txt;
+    var del = document.createElement('button'); del.className = 'del'; del.textContent = '✕';
+    del.title = '刪除這一則';
+    del.onclick = function () { answers.splice(i, 1); saveLocal(); renderWall(); };
+    d.appendChild(who); d.appendChild(txt); d.appendChild(del);
+    w.appendChild(d);
+  });
+}
+
+function clearAnswers() {
+  if (!answers.length) return;
+  if (confirm('確定要清除全部 ' + answers.length + ' 則答案嗎？')) {
+    answers = []; saveLocal(); renderWall();
+  }
+}
+
+function copyAll() {
+  var lines = ['問題：' + question, ''];
+  answers.forEach(function (a, i) { lines.push((i + 1) + '. ' + a.who + '：' + a.txt); });
+  var text = lines.join('\n');
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { alert('已複製全部答案'); });
+  else alert(text);
+}
+
+/* ---------- 投影播放 ---------- */
+function openStage() {
+  if (!question && !answers.length) { alert('先建立教室、輸入問題'); return; }
+  stageIdx = 0;
+  $('stage').style.display = 'flex';
+  renderStage();
+}
+function closeStage() { $('stage').style.display = 'none'; }
+function stageMove(d) {
+  var total = answers.length + 1;
+  stageIdx = Math.min(total - 1, Math.max(0, stageIdx + d));
+  renderStage();
+}
+function renderStage() {
+  var total = answers.length + 1;
+  $('stageQ').textContent = '問題：' + question;
+  if (stageIdx === 0) {
+    $('stageA').textContent = question;
+    $('stageW').textContent = '（問題頁）';
+  } else {
+    var a = answers[stageIdx - 1];
+    $('stageA').textContent = a.txt;
+    $('stageW').textContent = a.who;
+  }
+  $('stageN').textContent = (stageIdx + 1) + ' / ' + total;
+}
+document.addEventListener('keydown', function (e) {
+  if ($('stage').style.display !== 'flex') return;
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); stageMove(1); }
+  if (e.key === 'ArrowLeft') stageMove(-1);
+  if (e.key === 'Escape') closeStage();
+});
+$('stage').addEventListener('click', function (e) {
+  if (e.target.tagName === 'BUTTON') return;
+  var x = e.clientX / window.innerWidth;
+  stageMove(x > 0.5 ? 1 : -1);
+});
+
+/* ---------- 學生 ---------- */
+function joinRoom() {
+  var code = $('sCode').value.trim();
+  if (!/^\d{6}$/.test(code)) { alert('教室代碼是 6 位數字'); return; }
+  myCode = code; role = 'S';
+  setStatus('sStatus', '連線中…', '');
+  connect(code, false);
+}
+
+function sendAnswer() {
+  var who = $('sName').value.trim();
+  var txt = $('sAns').value.trim();
+  if (!who) { alert('請先填姓名或組別'); return; }
+  if (!txt) { alert('請先寫答案'); return; }
+  if (!client || !client.connected) { alert('還沒連上教室，請稍等幾秒再送一次'); return; }
+  client.publish(topic(myCode, 'answers'), JSON.stringify({ who: who, txt: txt, t: Date.now() }));
+  var ss = $('sendStatus'); ss.style.display = 'block';
+  setStatus('sendStatus', '送出了！老師的畫面上已經收到你的答案。', 'ok');
+  $('sAns').value = '';
+}
+
+/* ---------- 啟動 ---------- */
+(function () {
+  var m = location.search.match(/code=(\d{6})/);
+  if (m) { showMode('S'); $('sCode').value = m[1]; joinRoom(); }
+  var d; try { d = JSON.parse(localStorage.getItem('cqa_room') || 'null'); } catch (e) {}
+  if (d && d.code) $('resumeBtn').style.display = 'inline-block';
+})();
+</script>
+</body>
+</html>
