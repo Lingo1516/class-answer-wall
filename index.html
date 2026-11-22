@@ -143,11 +143,14 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
-var BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081'];
-var client = null, brokerIdx = 0;
+var BROKERS = ['wss://mqtt.eclipseprojects.io:443/mqtt',
+               'wss://broker.emqx.io:8084/mqtt',
+               'wss://broker.hivemq.com:8884/mqtt',
+               'wss://test.mosquitto.org:8081'];
+var client = null, brokerIdx = 0, connTimer = null, curRole = null, curCode = null;
 var role = null, myCode = null, question = '';
 var answers = []; // {who, txt, t}
 var stageIdx = 0;
@@ -155,34 +158,51 @@ var stageIdx = 0;
 function topic(code, kind) { return 'lingo1516/classqa/' + code + '/' + kind; }
 function $(id) { return document.getElementById(id); }
 
+function statusId() { return curRole === 'T' ? 'tStatus' : 'sStatus'; }
+
 function connect(code, asTeacher) {
+  curCode = code; curRole = asTeacher ? 'T' : 'S';
   if (client) { try { client.end(true); } catch (e) {} client = null; }
   brokerIdx = 0;
-  tryBroker(code, asTeacher);
+  tryBroker();
 }
-function tryBroker(code, asTeacher) {
+function tryBroker() {
+  if (brokerIdx >= BROKERS.length) {
+    setStatus(statusId(), '四台即時伺服器都連不上（網路可能擋住了連線）。10 秒後自動重試，或換一個網路再試。', 'bad');
+    connTimer = setTimeout(function () { brokerIdx = 0; tryBroker(); }, 10000);
+    return;
+  }
+  setStatus(statusId(), '連線中（第 ' + (brokerIdx + 1) + ' 台伺服器）…', '');
   var url = BROKERS[brokerIdx];
-  var c = mqtt.connect(url, { clientId: 'cqa_' + Math.random().toString(36).slice(2, 10),
-                             reconnectPeriod: 3000, connectTimeout: 8000 });
+  var c;
+  try {
+    c = mqtt.connect(url, { clientId: 'cqa_' + Math.random().toString(36).slice(2, 10),
+                            reconnectPeriod: 0, connectTimeout: 9000 });
+  } catch (e) { brokerIdx++; tryBroker(); return; }
   client = c;
   var opened = false;
+  clearTimeout(connTimer);
+  connTimer = setTimeout(function () {
+    if (!opened) { try { c.end(true); } catch (e) {} brokerIdx++; tryBroker(); }
+  }, 10000);
   c.on('connect', function () {
-    opened = true;
-    if (asTeacher) {
-      c.subscribe(topic(code, 'answers'));
+    opened = true; clearTimeout(connTimer);
+    if (curRole === 'T') {
+      c.subscribe(topic(curCode, 'answers'));
       setStatus('tStatus', '連線成功，教室開放中。學生送出答案會即時出現在下方。', 'ok');
+      c.publish(topic(curCode, 'question'), JSON.stringify({ q: question }), { retain: true });
     } else {
-      c.subscribe(topic(code, 'question'));
+      c.subscribe(topic(curCode, 'question'));
       setStatus('sStatus', '連線成功，正在等老師公布問題…', 'ok');
     }
   });
   c.on('message', function (tp, payload) {
     var msg; try { msg = JSON.parse(payload.toString()); } catch (e) { return; }
-    if (asTeacher && tp === topic(code, 'answers') && msg.who !== undefined) {
+    if (curRole === 'T' && tp === topic(curCode, 'answers') && msg.who !== undefined) {
       answers.push({ who: msg.who, txt: msg.txt, t: msg.t || Date.now() });
       saveLocal(); renderWall();
     }
-    if (!asTeacher && tp === topic(code, 'question') && msg.q !== undefined) {
+    if (curRole === 'S' && tp === topic(curCode, 'question') && msg.q !== undefined) {
       question = msg.q;
       $('sqShow').textContent = question;
       $('sBox').style.display = 'block';
@@ -190,8 +210,13 @@ function tryBroker(code, asTeacher) {
     }
   });
   c.on('error', function () {
-    if (!opened && brokerIdx < BROKERS.length - 1) {
-      brokerIdx++; try { c.end(true); } catch (e) {} tryBroker(code, asTeacher);
+    if (!opened) { clearTimeout(connTimer); try { c.end(true); } catch (e) {} brokerIdx++; tryBroker(); }
+  });
+  c.on('close', function () {
+    if (opened) { // 已連上又斷線：重新輪替連線
+      opened = false; brokerIdx = 0;
+      setStatus(statusId(), '連線中斷，重新連線中…', 'bad');
+      connTimer = setTimeout(tryBroker, 2000);
     }
   });
 }
