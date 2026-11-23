@@ -115,6 +115,13 @@
       <div class="wall" id="wall" style="margin-top:14px"></div>
       <p class="hint" id="wallEmpty">還沒有答案。學生送出後，幾秒內會自動出現在這裡。</p>
     </div>
+
+    <div class="card">
+      <h2>三、歷史紀錄（把以前的答案叫回來）</h2>
+      <button class="sub" onclick="loadHistory()">載入歷史紀錄</button>
+      <p class="hint">每一堂課的問題和答案都存在雲端，這裡會照「提問日期時間＋問題」一筆一筆列出來。點「叫出這次答案」，那一次的答案就會回到上面的答案牆，可以再投影播放，也可以再下載儲存。</p>
+      <div id="histList" style="margin-top:10px"></div>
+    </div>
     </div>
   </section>
 
@@ -164,6 +171,7 @@ var SHEET_ID = '1uyj3Any92hqMW3GmcRP6H1IDE8q8ccn9YSPjJqTiX6Y', SHEET_TAB = '表�
 var QMARK = '__Q__';
 
 var role = null, myCode = null, question = '';
+var histMode = false, sessionTs = '';
 var answers = [];            // {who, txt, row}
 var hiddenRows = {};         // 老師在本機隱藏的列
 var seenRows = {};           // 已處理過的列（避免重複）
@@ -202,7 +210,11 @@ function fetchRows() {
         var c = r.c && r.c[idx];
         return c && c.v !== null && c.v !== undefined ? String(c.v) : '';
       }
-      return { row: i, code: v(1), who: v(2), txt: v(3) };
+      function f(idx) {
+        var c = r.c && r.c[idx];
+        return c ? (c.f || (c.v !== null && c.v !== undefined ? String(c.v) : '')) : '';
+      }
+      return { row: i, ts: f(0), code: v(1), who: v(2), txt: v(3) };
     });
   });
 }
@@ -232,6 +244,10 @@ function createRoom() {
   var q = $('tq').value.trim();
   if (!q) { alert('請先輸入問題'); return; }
   question = q;
+  histMode = false;
+  var nd = new Date();
+  sessionTs = nd.getFullYear() + '/' + (nd.getMonth() + 1) + '/' + nd.getDate() + ' ' +
+              nd.getHours() + ':' + ('0' + nd.getMinutes()).slice(-2);
   myCode = String(Math.floor(100000 + Math.random() * 900000));
   answers = []; seenRows = {}; hiddenRows = {};
   role = 'T';
@@ -253,7 +269,7 @@ function createRoom() {
 function resumeRoom() {
   var d; try { d = JSON.parse(localStorage.getItem('cqa_room') || 'null'); } catch (e) {}
   if (!d) return;
-  myCode = d.code; question = d.q; role = 'T';
+  myCode = d.code; question = d.q; role = 'T'; histMode = false; sessionTs = '';
   answers = []; seenRows = {};
   hiddenRows = d.hidden || {};
   $('tq').value = question;
@@ -272,7 +288,7 @@ function drawQR() {
   try { new QRCode($('qr'), { text: link, width: 180, height: 180 }); } catch (e) {}
 }
 function saveLocal() {
-  if (role !== 'T' || !myCode) return;
+  if (role !== 'T' || !myCode || histMode) return;
   try { localStorage.setItem('cqa_room', JSON.stringify({ code: myCode, q: question, hidden: hiddenRows })); } catch (e) {}
 }
 function startPolling() {
@@ -286,7 +302,8 @@ function pollOnce() {
     rows.forEach(function (r) {
       if (r.code !== String(myCode)) return;
       if (role === 'T') {
-        if (r.who === QMARK || seenRows[r.row]) return;
+        if (r.who === QMARK) { if (!sessionTs) sessionTs = r.ts; return; }
+        if (seenRows[r.row]) return;
         seenRows[r.row] = true;
         if (!hiddenRows[r.row]) { answers.push({ who: r.who, txt: r.txt, row: r.row }); changed = true; }
       } else if (role === 'S') {
@@ -333,7 +350,7 @@ function clearAnswers() {
 }
 function downloadAnswers() {
   if (!answers.length) { alert('目前還沒有答案可以儲存'); return; }
-  var rows = [['問題', question], [], ['姓名或組別', '答案']];
+  var rows = [['問題', question], ['提問時間', sessionTs || '（未記錄）'], [], ['姓名或組別', '答案']];
   answers.forEach(function (a) { rows.push([a.who, a.txt]); });
   var csv = rows.map(function (r) {
     return r.map(function (c) { return '"' + String(c || '').replace(/"/g, '""') + '"'; }).join(',');
@@ -354,6 +371,50 @@ function copyAll() {
   var text = lines.join('\n');
   if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { alert('已複製全部答案'); });
   else alert(text);
+}
+
+/* ===== 歷史紀錄 ===== */
+function buildSessions(rows) {
+  var sessions = [], cur = {};
+  rows.forEach(function (r) {
+    if (r.who === QMARK) {
+      var s = { code: r.code, q: r.txt, ts: r.ts, qRow: r.row, answers: [] };
+      sessions.push(s); cur[r.code] = s;
+    } else if (r.code && cur[r.code]) {
+      cur[r.code].answers.push({ who: r.who, txt: r.txt, row: r.row });
+    }
+  });
+  return sessions.reverse();
+}
+function loadHistory() {
+  $('histList').textContent = '載入中…';
+  fetchRows().then(function (rows) {
+    var sessions = buildSessions(rows);
+    var box = $('histList'); box.innerHTML = '';
+    if (!sessions.length) { box.textContent = '還沒有任何紀錄。'; return; }
+    sessions.forEach(function (s) {
+      var d = document.createElement('div'); d.className = 'ans'; d.style.marginBottom = '10px';
+      var t = document.createElement('div'); t.className = 'who';
+      t.textContent = (s.ts || '時間未記錄') + '｜共 ' + s.answers.length + ' 則答案';
+      var q = document.createElement('div'); q.className = 'txt'; q.textContent = '問題：' + s.q;
+      var b = document.createElement('button'); b.textContent = '叫出這次答案';
+      b.onclick = function () { loadSession(s); };
+      d.appendChild(t); d.appendChild(q); d.appendChild(b);
+      box.appendChild(d);
+    });
+  }).catch(function () { $('histList').textContent = '載入失敗，請檢查網路後再試一次。'; });
+}
+function loadSession(s) {
+  histMode = true;
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  role = 'T'; myCode = s.code; question = s.q; sessionTs = s.ts || '';
+  answers = s.answers.slice(); seenRows = {};
+  answers.forEach(function (a) { seenRows[a.row] = true; });
+  $('tqShow').style.display = 'block';
+  $('tqShow').textContent = '問題：' + question;
+  renderWall();
+  setStatus('tStatus', '正在回顧歷史紀錄（' + (sessionTs || '') + ' 的問題）。要開新教室，請在上方輸入問題按「建立教室並公布問題」。', 'ok');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* ===== 投影播放 ===== */
