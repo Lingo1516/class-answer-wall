@@ -42,7 +42,7 @@
   .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
   .ans { background: #fff; border: 1px solid #d5dbe3; border-left: 6px solid #1F3864;
          border-radius: 8px; padding: 14px 16px; position: relative; }
-  .ans .who { font-weight: bold; color: #1F3864; font-size: 17px; margin-bottom: 4px; }
+  .ans .who { font-weight: bold; color: #C00000; font-size: 21px; margin-bottom: 4px; }
   .ans .txt { font-size: 20px; white-space: pre-wrap; word-break: break-word; }
   .ans .del { position: absolute; top: 6px; right: 10px; background: none; border: none;
               color: #C00000; font-size: 18px; padding: 2px 6px; margin: 0; }
@@ -299,6 +299,7 @@ function pollOnce() {
     });
     if (role === 'T') {
       if (changed) renderWall();
+      if ($('stage').style.display === 'flex') renderStage();
       setStatus('tStatus', '教室開放中（代碼 ' + myCode + '），最後更新 ' + nowTime() + '。', 'ok');
     }
   }).catch(function () { /* 下一輪再試 */ });
@@ -352,10 +353,11 @@ function stageMove(d) {
 }
 function renderStage() {
   var total = answers.length + 1;
+  if (stageIdx > total - 1) stageIdx = total - 1;
   $('stageQ').textContent = '問題：' + question;
   if (stageIdx === 0) {
     $('stageA').textContent = question;
-    $('stageW').textContent = '';
+    $('stageW').textContent = answers.length ? '學生答案共 ' + answers.length + ' 則，按 → 看答案' : '還沒有學生答案';
   } else {
     var a = answers[stageIdx - 1];
     $('stageA').textContent = a.txt;
