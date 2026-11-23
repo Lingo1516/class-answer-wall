@@ -53,10 +53,11 @@
            z-index: 50; flex-direction: column; }
   #stage .sq { padding: 34px 6vw 0; font-size: 24px; color: #ffd966; font-weight: bold;
                white-space: pre-wrap; }
+  #stage .sw { text-align: center; font-size: 36px; font-weight: bold; color: #8ecbff;
+               padding: 14px 6vw 0; }
   #stage .sa { flex: 1; display: flex; align-items: center; justify-content: center;
                padding: 20px 6vw; text-align: center; font-size: 52px; line-height: 1.5;
                white-space: pre-wrap; word-break: break-word; overflow: auto; }
-  #stage .sw { text-align: center; font-size: 22px; color: #bcd; padding-bottom: 8px; }
   #stage .sbar { display: flex; justify-content: space-between; align-items: center;
                  padding: 14px 22px; font-size: 19px; }
   #stage button { background: #fff; color: #10243e; border-color: #fff; }
@@ -79,6 +80,15 @@
 
   <!-- 老師 -->
   <section id="modeT">
+    <div class="card" id="lockCard">
+      <h2>老師專區（需要密碼）</h2>
+      <label>請輸入老師密碼</label>
+      <input type="password" id="pwInput" placeholder="輸入密碼後按解鎖" onkeydown="if(event.key==='Enter')unlock()">
+      <button onclick="unlock()">解鎖</button>
+      <div id="pwStatus" class="status" style="display:none"></div>
+      <p class="hint">學生不用密碼：請學生點上面的「我是學生」，或直接掃教室的 QR Code 進來。</p>
+    </div>
+    <div id="teacherMain" style="display:none">
     <div class="card">
       <h2>一、開一間教室</h2>
       <label>問題（一次一個）</label>
@@ -103,6 +113,7 @@
       <p class="hint">按「投影播放」後，用鍵盤 ← → 或點按鈕翻頁，第一頁是問題，後面一頁一則答案。清除只是清掉這個畫面，雲端表格仍留有完整紀錄。</p>
       <div class="wall" id="wall" style="margin-top:14px"></div>
       <p class="hint" id="wallEmpty">還沒有答案。學生送出後，幾秒內會自動出現在這裡。</p>
+    </div>
     </div>
   </section>
 
@@ -133,8 +144,8 @@
 <!-- 投影播放 -->
 <div id="stage">
   <div class="sq" id="stageQ"></div>
-  <div class="sa" id="stageA"></div>
   <div class="sw" id="stageW"></div>
+  <div class="sa" id="stageA"></div>
   <div class="sbar">
     <button onclick="stageMove(-1)">← 上一頁</button>
     <span id="stageN"></span>
@@ -197,6 +208,22 @@ function fetchRows() {
 function nowTime() {
   var d = new Date();
   return d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2);
+}
+
+/* ===== 老師密碼鎖 ===== */
+var TEACHER_PW = '2djilxjl';
+function unlock() {
+  if ($('pwInput').value === TEACHER_PW) {
+    try { sessionStorage.setItem('cqa_auth', '1'); } catch (e) {}
+    showTeacher();
+  } else {
+    var s = $('pwStatus'); s.style.display = 'block';
+    setStatus('pwStatus', '密碼不對，請再試一次。', 'bad');
+  }
+}
+function showTeacher() {
+  $('lockCard').style.display = 'none';
+  $('teacherMain').style.display = 'block';
 }
 
 /* ===== 老師 ===== */
@@ -328,7 +355,7 @@ function renderStage() {
   $('stageQ').textContent = '問題：' + question;
   if (stageIdx === 0) {
     $('stageA').textContent = question;
-    $('stageW').textContent = '（問題頁）';
+    $('stageW').textContent = '';
   } else {
     var a = answers[stageIdx - 1];
     $('stageA').textContent = a.txt;
@@ -378,6 +405,9 @@ function sendAnswer() {
 
 /* ===== 啟動 ===== */
 (function () {
+  var auth = false;
+  try { auth = sessionStorage.getItem('cqa_auth') === '1'; } catch (e) {}
+  if (auth) showTeacher();
   var m = location.search.match(/code=(\d{6})/);
   if (m) { showMode('S'); $('sCode').value = m[1]; joinRoom(); }
   var d; try { d = JSON.parse(localStorage.getItem('cqa_room') || 'null'); } catch (e) {}
