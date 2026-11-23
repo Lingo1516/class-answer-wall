@@ -108,6 +108,7 @@
       <h2>二、收到的答案（<span class="count" id="ansCount">0</span> 則）</h2>
       <div class="qtext" id="tqShow" style="display:none"></div>
       <button onclick="openStage()">▶ 投影播放（像 PPT 一頁一則）</button>
+      <button class="sub" onclick="downloadAnswers()">儲存本次答案（下載檔案）</button>
       <button class="sub" onclick="copyAll()">複製全部答案</button>
       <button class="red" onclick="clearAnswers()">清除畫面上的答案</button>
       <p class="hint">按「投影播放」後，用鍵盤 ← → 或點按鈕翻頁，第一頁是問題，後面一頁一則答案。清除只是清掉這個畫面，雲端表格仍留有完整紀錄。</p>
@@ -329,6 +330,23 @@ function clearAnswers() {
     answers.forEach(function (a) { hiddenRows[a.row] = true; });
     answers = []; saveLocal(); renderWall();
   }
+}
+function downloadAnswers() {
+  if (!answers.length) { alert('目前還沒有答案可以儲存'); return; }
+  var rows = [['問題', question], [], ['姓名或組別', '答案']];
+  answers.forEach(function (a) { rows.push([a.who, a.txt]); });
+  var csv = rows.map(function (r) {
+    return r.map(function (c) { return '"' + String(c || '').replace(/"/g, '""') + '"'; }).join(',');
+  }).join('\r\n');
+  var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  var d = new Date();
+  var name = '課堂答案_' + d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) +
+             ('0' + d.getDate()).slice(-2) + '_' + myCode + '.csv';
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 function copyAll() {
   var lines = ['問題：' + question, ''];
